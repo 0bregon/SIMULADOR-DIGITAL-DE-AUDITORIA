@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulador Digital de Auditoría</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<style>
+:root{--bg:#f1f5f9;--card:#fff;--tx:#1e293b;--mut:#64748b;--bd:#e2e8f0;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f172a;--card:#1e293b;--tx:#e2e8f0;--mut:#94a3b8;--bd:#334155}}
+body{background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px}
+input[type=text],select{background:transparent;border:1px solid var(--bd);border-radius:6px;padding:6px 8px;width:100%;font-size:.85rem}
+select option{color:#000}.mut{color:var(--mut)}.hide{display:none}
+@media print{.no-print{display:none!important}body{background:#fff!important;color:#000!important}:root{--card:#fff;--tx:#000;--mut:#444;--bd:#bbb}}
+</style></head>
+<body class="min-h-screen pb-12">
+<header class="bg-slate-900 text-white py-4 border-b-4 border-indigo-500 no-print">
+ <div class="max-w-5xl mx-auto px-4 flex flex-wrap justify-between items-center gap-3">
+  <div><h1 class="text-xl font-bold">Simulador Digital de Auditoría</h1><p class="text-slate-400 text-xs">Evaluación y Auditoría de Sistemas · Universidad de Panamá, CRU Panamá Oeste</p></div>
+  <div class="flex items-center gap-2 text-sm"><span class="text-slate-300">Rol:</span>
+   <select id="role" class="!w-auto !text-black" onchange="setRole()"><option>Auditor</option><option>Administrador</option></select></div>
+ </div></header>
+<main class="max-w-5xl mx-auto px-4 mt-6 space-y-5" id="app"></main>
+
+<script>
+const R={A:5,M:3,B:1};
+// Escenarios. Ítem: [control, evidencia observada, ¿hay hallazgo?, prob(1-5), impacto(1-5), corrección, ref. norma]
+const SC=[
+{id:"lab",n:"Laboratorio VulnLab-02",std:"ISO/IEC 27001:2022",d:"Entorno físico y lógico de un laboratorio de TI (basado en la Fase 3).",it:[
+["Gestión de credenciales","El panel del router acepta admin/admin.",1,5,4,"Cambiar credenciales por defecto por contraseñas complejas.","A.5.17"],
+["Servicios de red","El escaneo muestra el puerto 21 (FTP) abierto con login anónimo.",1,4,4,"Deshabilitar acceso anónimo y migrar a SFTP (puerto 22).","A.8.20"],
+["Dispositivos externos","Hay una memoria USB desconocida conectada al servidor.",1,3,5,"Controlar puertos USB y aplicar política de seguridad física.","A.7.10"],
+["Rack de servidores","El rack está cerrado con llave y el cableado, ordenado y etiquetado.",0,0,0,"","A.7.5"],
+["Gestión de parches","El gestor muestra CVE críticos sin aplicar desde hace 90 días.",1,4,5,"Automatizar la instalación de parches críticos.","A.8.8"],
+["Documentación de hallazgos","Los hallazgos se anotan en pizarras sin protocolo de seguridad.",1,3,3,"Formalizar reportes bajo normas de auditoría.","A.5.37"],
+["Respaldos","Respaldo diario con restauración verificada cada mes.",0,0,0,"","A.8.13"]]},
+{id:"cloud",n:"Nube e infraestructura virtual",std:"ISO/IEC 27017 + COBIT DSS",d:"Entorno cloud (AWS/Azure) con virtualización (basado en la Fase 4).",it:[
+["MFA obligatorio","6 de 14 administradores de la consola no tienen MFA.",1,4,5,"Exigir MFA a todas las cuentas, empezando por administradores.","IAM"],
+["Grupos de seguridad","Un Security Group permite SSH desde 0.0.0.0/0 hacia la base de datos.",1,5,5,"Cerrar SSH/RDP/BD a internet; permitir solo IPs necesarias.","Red"],
+["Registros de auditoría","CloudTrail está activo, con logs inmutables y retención de 1 año.",0,0,0,"","Logs"],
+["Respaldos y DRP","Hay backups, pero sin pruebas de restauración ni DRP probado.",1,3,5,"Probar restauraciones y ejecutar el DRP al menos una vez al año.","DRP"],
+["Rotación de llaves","Hay access keys con 400 días sin rotar.",1,4,4,"Rotar llaves cada 90 días y eliminar las inactivas.","IAM"],
+["Control de costos","Hay presupuestos con alertas configuradas al 80 %.",0,0,0,"","Costos"],
+["Aislamiento de entornos","Dev y Prod comparten la misma VPC y el mismo almacenamiento.",1,3,4,"Separar Dev, Stage y Prod en redes y almacenamiento distintos.","Virt."]]},
+{id:"erp",n:"ERP corporativo (Finanzas)",std:"COBIT 2019 (BAI/DSS) + SOX",d:"Core ERP de una empresa ficticia: accesos, cambios y terceros.",it:[
+["Segregación de funciones","El mismo usuario crea proveedores y aprueba pagos.",1,4,5,"Separar los roles de registro y de aprobación.","DSS05"],
+["Gestión de cambios","Se hicieron cambios en producción sin ticket ni aprobación.",1,4,4,"Exigir ticket y aprobación formal antes de cada cambio.","BAI06"],
+["Bajas de personal","Hay 12 cuentas de ex-empleados aún activas.",1,4,4,"Dar de baja las cuentas en el proceso de salida y revisarlas cada trimestre.","DSS05"],
+["Cifrado de nómina","La base de nómina está cifrada y las claves están en HSM.",0,0,0,"","DSS05"],
+["Revisión de logs","El registro de auditoría está activo y la revisión mensual está firmada.",0,0,0,"","MEA01"],
+["Política de contraseñas","La política exige 12 caracteres, bloqueo y rotación.",0,0,0,"","DSS05"],
+["Proveedores externos","El contrato con el proveedor cloud no tiene cláusula de auditoría ni SLA de seguridad.",1,3,4,"Renegociar el contrato con cláusulas de auditoría y SLA de seguridad.","APO10"]]}];
+const lvl=s=>s>=20?["Crítico","text-red-600"]:s>=12?["Alto","text-orange-500"]:s>=6?["Medio","text-amber-500"]:["Bajo","text-emerald-500"];
+const $=id=>document.getElementById(id);
+let ST={hist:[]},cur=null,view="home";
+function load(){try{const v=localStorage.getItem("simaud2");if(v)ST=JSON.parse(v)}catch(e){}}
+function save(){try{localStorage.setItem("simaud2",JSON.stringify(ST))}catch(e){}}
+const role=()=>$("role").value, esc=s=>String(s||"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+function setRole(){view="home";draw()}
+function draw(){
+ const a=$("app");
+ if(view==="home"){
+  a.innerHTML=`<section class="card p-5"><h2 class="font-bold mb-1">${role()==="Auditor"?"Seleccione un escenario de auditoría":"Panel del administrador"}</h2>
+  <p class="text-sm mut mb-3">Revise la evidencia de cada control y decida si Cumple o No cumple. El simulador compara su juicio con los hallazgos reales, calcula el riesgo (probabilidad × impacto) y genera el informe.</p>
+  <div class="grid md:grid-cols-3 gap-3">${SC.map(s=>`<div class="card p-4 flex flex-col gap-2"><b>${s.n}</b><span class="text-xs mut">${s.std}</span><p class="text-sm flex-1">${s.d}</p>
+  <p class="text-xs mut">${s.it.length} controles</p>${role()==="Auditor"?`<button class="bg-indigo-600 text-white rounded px-3 py-2 text-sm" onclick="start('${s.id}')">Iniciar auditoría</button>`:`<p class="text-xs">Hallazgos reales: <b>${s.it.filter(i=>i[2]).length}</b></p>`}</div>`).join("")}</div></section>
+  ${role()==="Administrador"?histHTML():""}`;
+ }else report();
+}
+function histHTML(){return `<section class="card p-5"><div class="flex justify-between mb-2"><h3 class="font-bold">Historial de auditorías (${ST.hist.length})</h3>${ST.hist.length?`<button class="text-sm text-red-500" onclick="if(confirm('¿Borrar historial?')){ST.hist=[];save();draw()}">Borrar todo</button>`:""}</div>
+ ${ST.hist.length?`<table class="w-full text-sm"><tr class="mut text-xs uppercase text-left"><th>Fecha</th><th>Auditor</th><th>Escenario</th><th>Precisión</th><th>Riesgo residual</th></tr>${ST.hist.map(h=>`<tr class="border-t" style="border-color:var(--bd)"><td>${h.date}</td><td>${esc(h.aud)}</td><td>${esc(h.sc)}</td><td>${h.acc}%</td><td>${h.res}</td></tr>`).join("")}</table>`:`<p class="text-sm mut">Aún no hay auditorías guardadas.</p>`}</section>`}
+function start(id){cur={id,aud:"",org:"",ans:{},obs:{}};view="run";run()}
+function run(){
+ const s=SC.find(x=>x.id===cur.id);
+ $("app").innerHTML=`<section class="card p-5 space-y-4"><div class="flex flex-wrap justify-between gap-2"><h2 class="font-bold">${s.n} <span class="text-xs mut">· ${s.std}</span></h2><button class="text-sm mut" onclick="view='home';draw()">← Volver</button></div>
+ <div class="grid md:grid-cols-2 gap-3"><input type="text" id="aud" placeholder="Nombre del auditor" value="${esc(cur.aud)}" oninput="cur.aud=this.value"><input type="text" id="org" placeholder="Organización auditada" value="${esc(cur.org)}" oninput="cur.org=this.value"></div>
+ ${s.it.map((i,k)=>`<div class="card p-3 grid md:grid-cols-12 gap-2 items-center"><div class="md:col-span-5"><p class="font-semibold text-sm">${k+1}. ${i[0]} <span class="text-xs mut">[${i[6]}]</span></p><p class="text-sm mut">Evidencia: ${i[1]}</p></div>
+ <div class="md:col-span-3 flex gap-3 text-xs font-semibold">${["C","NC","NA"].map(o=>`<label><input type="radio" name="r${k}" ${cur.ans[k]===o?"checked":""} onchange="cur.ans[${k}]='${o}'"> ${o==="C"?"Cumple":o==="NC"?"No cumple":"N/A"}</label>`).join("")}</div>
+ <div class="md:col-span-4"><input type="text" placeholder="Observación..." value="${esc(cur.obs[k])}" oninput="cur.obs[${k}]=this.value"></div></div>`).join("")}
+ <button class="bg-emerald-600 text-white rounded px-4 py-2 font-medium" onclick="finish()">Finalizar y generar informe</button></section>`;
+}
+function finish(){
+ const s=SC.find(x=>x.id===cur.id);
+ if(Object.keys(cur.ans).length<s.it.length){alert("Responda todos los controles antes de finalizar.");return}
+ const r={det:[],miss:[],fp:[],ok:0};
+ s.it.forEach((i,k)=>{const nc=cur.ans[k]==="NC";
+  if(i[2]&&nc)r.det.push(k);else if(i[2])r.miss.push(k);else if(nc)r.fp.push(k);
+  if((i[2]&&nc)||(!i[2]&&cur.ans[k]==="C"))r.ok++});
+ r.acc=Math.round(r.ok/s.it.length*100);
+ r.tot=s.it.filter(i=>i[2]).reduce((t,i)=>t+i[3]*i[4],0);
+ r.res=r.miss.reduce((t,k)=>t+s.it[k][3]*s.it[k][4],0);
+ r.cov=r.tot?Math.round((r.tot-r.res)/r.tot*100):100;
+ cur.r=r;cur.date=new Date().toLocaleDateString("es-PA");
+ ST.hist.unshift({date:cur.date,aud:cur.aud||"—",sc:s.n,acc:r.acc,res:r.res});ST.hist=ST.hist.slice(0,30);save();
+ view="rep";draw();scrollTo(0,0)}
+function report(){
+ const s=SC.find(x=>x.id===cur.id),r=cur.r,I=s.it;
+ const rows=ks=>ks.map(k=>{const i=I[k],sc=i[3]*i[4],l=lvl(sc);return {k,i,sc,l}}).sort((a,b)=>b.sc-a.sc);
+ const D=rows(r.det),M=rows(r.miss);
+ const crit=D.filter(x=>x.sc>=12).length;
+ const dic=r.cov>=85&&!M.some(x=>x.sc>=12)?"FAVORABLE":r.cov>=60?"FAVORABLE CON SALVEDADES":"DESFAVORABLE";
+ const tb=L=>L.map((x,n)=>`<tr class="border-t" style="border-color:var(--bd)"><td class="py-2 pr-2">${n+1}</td><td class="pr-2"><b>${x.i[0]}</b><br><span class="mut">${x.i[1]}</span></td><td class="pr-2">${x.i[3]}×${x.i[4]}=${x.sc}</td><td class="font-bold ${x.l[1]}">${x.l[0]}</td><td class="pl-2">${esc(cur.obs[x.k])}</td></tr>`).join("");
+ const th=`<thead><tr class="mut text-xs uppercase text-left"><th>#</th><th>Control / evidencia</th><th>P×I</th><th>Nivel</th><th class="pl-2">Observación</th></tr></thead>`;
+ $("app").innerHTML=`<div class="no-print flex gap-2"><button class="bg-indigo-600 text-white rounded px-4 py-2 text-sm" onclick="print()">Imprimir / Guardar PDF</button><button class="card px-4 py-2 text-sm" onclick="start('${s.id}')">Repetir escenario</button><button class="card px-4 py-2 text-sm" onclick="view='home';draw()">Inicio</button></div>
+ <section class="card p-5"><h2 class="text-xl font-bold border-b pb-2 mb-2" style="border-color:var(--bd)">INFORME DE AUDITORÍA: RIESGOS Y REQUERIMIENTOS</h2>
+ <p class="text-sm"><b>Escenario:</b> ${s.n} · <b>Norma:</b> ${s.std} · <b>Auditor:</b> ${esc(cur.aud)||"—"} · <b>Organización:</b> ${esc(cur.org)||"—"} · <b>Fecha:</b> ${cur.date}</p></section>
+ <section class="grid grid-cols-2 md:grid-cols-4 gap-3">${[["Precisión del juicio",r.acc+"%"],["Hallazgos detectados",r.det.length+" / "+I.filter(i=>i[2]).length],["Cobertura de riesgo",r.cov+"%"],["Riesgo residual",r.res]].map(c=>`<div class="card p-3"><p class="text-xs mut">${c[0]}</p><p class="text-2xl font-extrabold">${c[1]}</p></div>`).join("")}</section>
+ <section class="card p-5"><h3 class="font-bold mb-2">1. Matriz de riesgos encontrados</h3><div class="overflow-x-auto"><table class="w-full text-sm">${th}<tbody>${D.length?tb(D):`<tr><td colspan="5" class="py-2 mut">No se detectó ningún hallazgo.</td></tr>`}</tbody></table></div></section>
+ <section class="card p-5"><h3 class="font-bold mb-2">2. Requerimientos y acciones correctivas</h3><ol class="list-decimal pl-5 text-sm space-y-1">${D.map(x=>`<li><b class="${x.l[1]}">[${x.l[0]}]</b> ${x.i[5]} <span class="mut">(${x.i[6]})</span></li>`).join("")||"<li class='mut'>Sin requerimientos.</li>"}</ol></section>
+ <section class="card p-5"><h3 class="font-bold mb-2">3. Hallazgos no detectados (riesgo residual)</h3>${M.length?`<table class="w-full text-sm">${th}<tbody>${tb(M)}</tbody></table>`:`<p class="text-sm text-emerald-600">No se omitió ningún hallazgo.</p>`}
+ ${r.fp.length?`<h3 class="font-bold mt-4 mb-1">Falsos positivos (controles que sí cumplían)</h3><ul class="list-disc pl-5 text-sm">${r.fp.map(k=>`<li>${I[k][0]}: ${I[k][1]}</li>`).join("")}</ul>`:""}</section>
+ <section class="card p-5"><h3 class="font-bold mb-1">4. Dictamen sugerido</h3><p class="text-xl font-extrabold">${dic}</p><p class="text-sm mut">${crit} hallazgo(s) alto/crítico detectado(s); cobertura de riesgo ${r.cov}%.</p>
+ <div class="grid grid-cols-2 gap-8 pt-10"><div class="text-center"><div class="border-b h-8" style="border-color:var(--mut)"></div><p class="text-xs font-bold uppercase mt-1">Firma del auditor</p></div><div class="text-center"><div class="border-b h-8" style="border-color:var(--mut)"></div><p class="text-xs font-bold uppercase mt-1">Recibido por (Responsable TI)</p></div></div></section>`;
+}
+load();draw();
+</script></body></html>
